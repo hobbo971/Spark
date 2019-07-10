@@ -1,0 +1,198 @@
+package classTutorial;
+
+//Author: Joseph Williams
+
+//02/05/18
+
+import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.functions;
+import org.apache.spark.SparkConf;
+import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.api.java.function.MapFunction;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
+import static org.apache.spark.sql.functions.col;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.PrintWriter;
+import java.util.Arrays;
+import java.util.List;
+
+import javax.swing.plaf.basic.BasicComboBoxUI.ComboBoxLayoutManager;
+
+import org.apache.commons.math3.geometry.spherical.oned.ArcsSet.Split;
+import org.apache.log4j.Level;
+import org.apache.log4j.LogManager;
+
+import static org.apache.spark.sql.functions.avg;
+import org.apache.spark.sql.Encoders;
+
+public class B160309339 {
+
+	private static String PATH = Messages.getString("LearningSparkIntroExamples.0"); //$NON-NLS-1$
+	private static String MOVIES = "movies.csv";
+	private static String RATINGS = "ratings.csv";
+	private static String SPLITGENRES = "movieGenres.csv";
+	static SparkConf conf = new SparkConf().setMaster("local").setAppName("My App");
+	static JavaSparkContext sc = new JavaSparkContext(conf);
+	static SparkSession spark = SparkSession.builder().appName("Java Spark SQL basic example")
+			.config("spark.some.config.option", "some-value").getOrCreate();
+	static StringBuilder sb = new StringBuilder();
+
+	public static void main(String[] args) throws FileNotFoundException {
+		LogManager.getLogger("org").setLevel(Level.ERROR);
+		//call each task
+		task1();
+		task2(RunCreatingDataframes());
+		task3();
+		task4(maketask4());
+		task5(maketask4(), RunCreatingDataframesRatings());
+		task6(RunCreatingDataframesRatings(), RunCreatingDataframesmovieGenres());
+		task7(RunCreatingDataframesRatings());
+		
+		
+	
+		
+		spark.stop();
+	}
+
+	
+
+	private static Dataset<Row> RunCreatingDataframesmovieGenres(){
+		
+		Dataset<Row> movieGenres = spark.read().option("inferSchema", true).option("header", true).option("multLine", true)
+				.option("mode", "DROPMALFORMED").csv(PATH + SPLITGENRES);
+
+		
+		
+		return movieGenres;
+	}
+
+	private static Dataset<Row> RunCreatingDataframesRatings() {
+		Dataset<Row> ratingsdf = spark.read().option("inferSchema", true).option("header", true)
+				.option("multLine", true).option("mode", "DROPMALFORMED").csv(PATH + RATINGS);
+		
+		return ratingsdf;
+	}
+
+	private static Dataset<Row> RunCreatingDataframes() {
+		Dataset<Row> moviedf = spark.read().option("inferSchema", true).option("header", true).option("multLine", true)
+				.option("mode", "DROPMALFORMED").csv(PATH + MOVIES);
+
+	
+
+		return moviedf;
+	}
+	
+	public static void task1(){
+		//Question 1
+				Dataset<Row> moviedf = RunCreatingDataframes();//creates data frames
+				moviedf.show(20);
+				moviedf.printSchema();
+
+				Dataset<Row> ratingsdf = RunCreatingDataframesRatings();//creates data frames
+				ratingsdf.show(20);
+				ratingsdf.printSchema();
+				
+		
+	}
+	public static void task2(Dataset<Row> moviedf) throws FileNotFoundException{
+		PrintWriter pw = new PrintWriter(PATH + "movieGenres.csv"); //create path to csv
+	
+		//Question 2	
+			System.out.println("Task 2");
+			sb.append("MovieId");
+			sb.append(",");
+			sb.append("Genres");
+			sb.append("\n");	
+			//create the coloums in csv file
+			JavaRDD<Object> splitGenres =
+					moviedf.select("movieId" , "genres").toJavaRDD()//create jrdd
+					.map(s -> {
+						String[] genreArray = s.toString().split("[|,]");//Regular expression to split when these characters appear
+						for(int i = 1; i < genreArray.length; i++){
+							
+							sb.append(genreArray[0].replace("[", ""));//Append the first element 
+							sb.append(",");//, to switch coloum 
+							sb.append(genreArray[i].replace("]", ""));//append second element
+							sb.append("\n");
+							
+						}
+						
+						
+						return genreArray;
+					}); 
+			
+			splitGenres.collect();
+			pw.write(sb.toString());
+			pw.close();
+	}
+	public static void task3(){
+		System.out.println("Task 3");
+		Dataset<Row> movieGenres  = RunCreatingDataframesmovieGenres();//create dataset
+		movieGenres.printSchema();
+		movieGenres.orderBy(col("movieId").desc()).show(50); //order by its id then show counting down
+	}
+	
+	public static Dataset<Row> task4(Dataset<Row> movieGenresCount){
+		System.out.println("Task 4");	
+		movieGenresCount.groupBy(col("genres")).count().orderBy(col("count").desc()).withColumnRenamed("count", "moviesCount").show(10);//group by the genres, count each genre then in descending order print the top genres
+		movieGenresCount.printSchema();
+		return  movieGenresCount;
+		
+	}
+	
+	public static Dataset<Row> maketask4(){
+		Dataset<Row> movieGenresCount  = RunCreatingDataframesmovieGenres();
+		return movieGenresCount;
+		
+	}
+
+	public static void task5(Dataset<Row> movieGenresCount, Dataset<Row> ratingsdf){
+		System.out.println("Task 5");
+		Dataset<Row> joinMovieRate = ratingsdf.select("userId" , "movieId").join(movieGenresCount, movieGenresCount.col("movieId").equalTo(ratingsdf.col("movieId")));
+		//create dataset where movieIds match 
+		Dataset<Row> joinMovieRateCopy = joinMovieRate.groupBy("genres", "userId").count().orderBy(col("count").desc()).dropDuplicates("genres").orderBy(col("count").desc()).drop("count");
+		//create dataset which group genres and userId and count them , so you can order by count in decending order and drop the duplicate genres
+		joinMovieRateCopy.show(10);
+		joinMovieRateCopy.printSchema();
+
+	}
+	public static void task6(Dataset<Row> ratingsdf, Dataset<Row> movieGenres){
+		System.out.println("task 6");
+		Dataset<Row> userRatingCount = ratingsdf;
+		//create dataset the group by userId and count them, then order by the count column, rename column then limit it to 10
+		userRatingCount = ratingsdf.groupBy(col("userId")).count().orderBy(col("count").desc()).withColumnRenamed("count", "ratingCount").limit(10);
+		//create data set that has movieGenres with the movieId
+		Dataset<Row> movieGenresWithRdf = movieGenres.join(ratingsdf, "movieId");
+		//create data set that is grouped by the userUd and Genres and count them then order by col count 
+		Dataset<Row> movieGenreMostRated = movieGenresWithRdf.groupBy("genres" , "userId").count().orderBy(col("count").desc()).withColumnRenamed("count", "totalGenreRatings");
+		//create dataset that has userid from mostGenreRated and joined with userRatingCount
+		Dataset<Row> mostRatedGenreByUser = userRatingCount.join(movieGenreMostRated, "userId");
+		//drop all the duplicate ids
+		mostRatedGenreByUser = mostRatedGenreByUser.dropDuplicates("userId");
+		//rename columns and drop count col, also make dataset equal the selected columns
+		mostRatedGenreByUser = mostRatedGenreByUser.withColumnRenamed("genres", "mostCommonGenre").drop(col("totalGenreRatings")).select("userId" , "ratingCount" , "mostCommonGenre");
+		mostRatedGenreByUser.orderBy(col("ratingCount").desc()).show(10);
+		//order by the ratingCount in decending order
+		
+		
+		userRatingCount.show();
+		userRatingCount.printSchema();
+	}
+	public static void task7(Dataset<Row> ratingsdf){
+		ratingsdf.createOrReplaceTempView("ratingsTask7");
+		//create string
+		//take movieId then find the average rating of that movieId, and then find the variance, then group it by movieId
+		String qeury = " SELECT movieId, AVG(rating) as AverageRating, VARIANCE(rating) as Variance FROM ratingsTask7 GROUP BY movieId";
+		Dataset<Row> task7 = spark.sql(qeury);//create dataset using string
+		task7 = task7.orderBy(col("AverageRating").desc());//order in descending order the avgratings
+		task7.show(10);
+		task7.printSchema();
+		
+	}
+}
